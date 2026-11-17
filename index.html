@@ -79,7 +79,11 @@ body {
   border: clamp(8px, 1.6vmin, 18px) solid var(--paper);
   background: var(--paper);
   box-shadow: var(--shadow);
-  cursor: pointer;
+  cursor: default;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
   transition: transform .2s ease;
 }
 /* The stage is the machine's glass bed: it stays put, and each print lands on top of it. */
@@ -448,6 +452,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
+      if (peeking) return;
       const { pixels, planes } = state;
       const img = press(planes, pixels.width, pixels.height, SETS[state.set], options(), Math.max(0.5, scaleOf(pixels)));
       ctx.putImageData(img, 0, 0);
@@ -564,6 +569,18 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
   ['dot', 'grain', 'shift'].forEach(id => $(id).addEventListener('input', draw));
   const file = $('file');
   $('open').onclick = $('platen').onclick = () => file.click();
+  // Press and hold the print to see the original photo underneath.
+  let peeking = false;
+  const peek = on => {
+    if (on === peeking || !state.pixels) return;
+    peeking = on;
+    if (on) { job++; $('dock').classList.remove('printing'); ctx.putImageData(state.pixels, 0, 0); }
+    else draw();
+  };
+  out.addEventListener('pointerdown', e => { if (e.button === 0) { out.setPointerCapture(e.pointerId); peek(true); } });
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => out.addEventListener(t, () => peek(false)));
+  out.addEventListener('click', e => e.stopPropagation());
+  out.addEventListener('contextmenu', e => e.preventDefault());
   file.onchange = () => { openFile(file.files[0]); file.value = ''; };
   $('save').onclick = save;
   addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag'); });
