@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!--page-->
-<title>Riso Press</title>
+<title>Rice</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <style>
 /* Layout: one screen. The print floats on a quiet studio table; a single dock of inks and dials sits beneath it. */
@@ -466,7 +466,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
       c.width = img.width; c.height = img.height;
       c.getContext('2d').putImageData(img, 0, 0);
       const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-      const filename = 'riso-' + set.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
+      const filename = 'rice-' + set.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
       // Inside a Claude artifact, saves go through the host; elsewhere a plain download link works.
       const host = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
       if (host) {
