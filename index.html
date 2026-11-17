@@ -376,11 +376,18 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
       c.width = img.width; c.height = img.height;
       c.getContext('2d').putImageData(img, 0, 0);
       const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'riso-' + set.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
-      document.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      const filename = 'riso-' + set.name.toLowerCase().replace(/[^a-z]+/g, '-') + '.png';
+      // Inside a Claude artifact, saves go through the host; elsewhere a plain download link works.
+      const host = window.claude && window.claude.use ? await window.claude.use('downloads') : null;
+      if (host) {
+        await host.save({ filename, data: blob }).catch(() => {});
+      } else {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      }
     } finally { btn.disabled = false; }
   }
 
