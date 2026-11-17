@@ -22,6 +22,10 @@
   --slot: #14161c;
   --led: #35c27a;
   --led-busy: #ffab2e;
+  --glass: #0d1119;
+  --glass-hi: #222b3b;
+  --glass-ink: rgb(226 240 255 / .5);
+  --lamp: #d9fff4;
   --shadow: 0 1px 1px rgba(20, 24, 40, .08), 0 18px 40px -12px rgba(20, 24, 40, .28);
   --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -43,6 +47,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -80,6 +85,79 @@ body {
   cursor: pointer;
   transition: transform .2s ease;
 }
+/* Before a photo arrives, the stage is the scanner glass: place the original here. */
+.platen {
+  appearance: none;
+  position: relative;
+  height: min(100%, 520px);
+  aspect-ratio: 4 / 3;
+  max-width: 100%;
+  padding: 0;
+  border: 12px solid var(--dock);
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--glass-hi), var(--glass) 45%, var(--glass) 70%, var(--glass-hi));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .5), inset 0 10px 30px rgba(0, 0, 0, .7), 0 0 0 1px rgba(0, 0, 0, .08), var(--shadow);
+  color: var(--glass-ink);
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform .2s ease;
+}
+/* ruler ticks along the top and left edges, like the size guides around a platen */
+.platen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(90deg, var(--glass-ink) 0 1px, transparent 1px 12px) 22px 0 / calc(100% - 22px) 5px no-repeat,
+    repeating-linear-gradient(90deg, var(--glass-ink) 0 1px, transparent 1px 60px) 22px 0 / calc(100% - 22px) 10px no-repeat,
+    repeating-linear-gradient(0deg, var(--glass-ink) 0 1px, transparent 1px 12px) 0 22px / 5px calc(100% - 22px) no-repeat,
+    repeating-linear-gradient(0deg, var(--glass-ink) 0 1px, transparent 1px 60px) 0 22px / 10px calc(100% - 22px) no-repeat;
+  opacity: .7;
+}
+/* the diagonal sheen of glass */
+.platen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .07) 38%, transparent 46%, transparent 58%, rgba(255, 255, 255, .04) 62%, transparent 68%);
+  pointer-events: none;
+}
+.platen .corner { position: absolute; top: 5px; left: 5px; width: 13px; height: 13px; }
+.platen .guide {
+  position: absolute;
+  inset: 16% 22%;
+  display: grid;
+  place-items: center;
+  border: 1.5px dashed currentColor;
+  border-radius: 6px;
+  opacity: .8;
+}
+.platen .guide svg { width: 34px; height: 34px; }
+.platen canvas {
+  position: absolute;
+  inset: 7%;
+  width: 86%;
+  height: 86%;
+  object-fit: contain;
+  filter: brightness(.82) saturate(.9);
+}
+.platen .lamp {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 16%;
+  background: linear-gradient(90deg, transparent, rgb(from var(--lamp) r g b / .1) 55%, rgb(from var(--lamp) r g b / .5) 92%, var(--lamp) 97%, transparent);
+  mix-blend-mode: screen;
+  transform: translateX(-100%);
+  animation: idle-scan 5.5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes idle-scan { 0% { transform: translateX(-100%); } 40%, 100% { transform: translateX(640%); } }
+.platen.scanning .guide { display: none; }
+.platen.scanning .lamp { animation: none; }
+.platen:not(.scanning) canvas { display: none; }
+body.drag .platen { transform: scale(1.02); color: var(--lamp); }
 body.drag .sheet { transform: scale(.97) rotate(-.6deg); }
 
 /* The dock is the machine: paper feeds out of the slot along its top edge. */
@@ -195,10 +273,10 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
 .act.primary { background: var(--fg); color: var(--dock); }
 .act.primary:hover { opacity: .85; }
 .act:active { transform: translateY(1px); }
-.act[disabled] { opacity: .4; cursor: progress; }
+.act[disabled] { opacity: .4; cursor: default; }
 
 :is(.ink, .act, input):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { .sheet, .ink i { transition: none; } .printing .led { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .sheet, .ink i, .platen { transition: none; } .platen .lamp { animation: none; } .printing .led { animation: none; } }
 @media (max-width: 520px) {
   input[type="range"] { width: 72px; }
   .dials { gap: 10px; }
@@ -206,7 +284,13 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
 </style>
 
 <main class="stage">
-  <canvas class="sheet" id="out" width="8" height="8" title="Open a photo"></canvas>
+  <button class="platen" id="platen" title="Open a photo" aria-label="Open a photo">
+    <svg class="corner" viewBox="0 0 13 13" fill="currentColor" aria-hidden="true"><path d="M0 0h13L0 13z"/></svg>
+    <span class="guide"><svg viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M17 8v18M8 17h18"/></svg></span>
+    <canvas id="orig" width="8" height="8"></canvas>
+    <i class="lamp"></i>
+  </button>
+  <canvas class="sheet" id="out" width="8" height="8" title="Open a photo" hidden></canvas>
 </main>
 
 <div class="dock" id="dock">
@@ -230,7 +314,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
     <button class="act" id="open" title="Open a photo" aria-label="Open a photo">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><circle cx="7" cy="8" r="1.4"/><path d="m3 14 4-3.5 3 2.5 3-3 4 4"/></svg>
     </button>
-    <button class="act primary" id="save" title="Save PNG" aria-label="Save PNG">
+    <button class="act primary" id="save" disabled title="Save PNG" aria-label="Save PNG">
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16.5h12"/></svg>
     </button>
   </div>
@@ -381,6 +465,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
 
   let queued = false;
   function draw() {
+    if (!state.pixels) return;
     job++;
     $('dock').classList.remove('printing');
     if (queued) return;
@@ -440,14 +525,34 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
   }
 
   function reseparate(feed) {
+    if (!state.pixels) return;
     state.planes = separate(state.pixels, SETS[state.set]);
     print(feed);
   }
-  function setSource(source) {
+  // A new original goes on the glass, the lamp reads it once, then the print feeds out.
+  let load = 0;
+  async function setSource(source) {
+    const id = ++load, platen = $('platen');
     state.source = source;
     state.pixels = rasterize(source, PREVIEW);
+    state.planes = separate(state.pixels, SETS[state.set]);
     out.width = state.pixels.width; out.height = state.pixels.height;
-    reseparate(true);
+    $('save').disabled = false;
+    if (!still.matches) {
+      const orig = $('orig');
+      orig.width = out.width; orig.height = out.height;
+      orig.getContext('2d').putImageData(state.pixels, 0, 0);
+      out.hidden = true; platen.hidden = false;
+      platen.classList.add('scanning');
+      $('dock').classList.add('printing');
+      await platen.querySelector('.lamp').animate(
+        [{ transform: 'translateX(-100%)' }, { transform: 'translateX(640%)' }],
+        { duration: 900, easing: 'cubic-bezier(.4, 0, .6, 1)' }).finished.catch(() => {});
+      if (id !== load) return;
+      platen.classList.remove('scanning');
+    }
+    platen.hidden = true; out.hidden = false;
+    print(true);
   }
   async function openFile(file) {
     if (!file || !file.type.startsWith('image/')) return;
@@ -455,6 +560,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
   }
 
   async function save() {
+    if (!state.source) return;
     const btn = $('save');
     btn.disabled = true;
     await new Promise(r => setTimeout(r, 30));
@@ -481,36 +587,6 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
     } finally { btn.disabled = false; }
   }
 
-  // A stand-in landscape so the press has something to print before a photo arrives.
-  function sample() {
-    const c = document.createElement('canvas'), w = c.width = 1100, h = c.height = 780;
-    const g = c.getContext('2d');
-    let s = g.createLinearGradient(0, 0, 0, h * 0.62);
-    s.addColorStop(0, '#2b3f8f'); s.addColorStop(0.45, '#e8739a'); s.addColorStop(0.8, '#ffb35c'); s.addColorStop(1, '#ffe7a3');
-    g.fillStyle = s; g.fillRect(0, 0, w, h);
-    s = g.createRadialGradient(700, 400, 20, 700, 400, 330);
-    s.addColorStop(0, 'rgba(255,250,215,.95)'); s.addColorStop(1, 'rgba(255,220,150,0)');
-    g.fillStyle = s; g.fillRect(0, 0, w, h);
-    g.fillStyle = '#fff6d0'; g.beginPath(); g.arc(700, 400, 84, 0, 7); g.fill();
-    const ridge = (base, amp, color, seed) => {
-      g.fillStyle = color; g.beginPath(); g.moveTo(0, h);
-      for (let x = 0; x <= w; x += 6) {
-        g.lineTo(x, base - amp * (Math.sin(x * 0.006 + seed) * 0.6 + Math.sin(x * 0.017 + seed * 2.3) * 0.3 + Math.sin(x * 0.041 + seed * 5) * 0.1));
-      }
-      g.lineTo(w, h); g.fill();
-    };
-    ridge(470, 70, '#a4588f', 1.2); ridge(520, 60, '#5f3f86', 3.1); ridge(570, 46, '#2f2a5e', 5.4);
-    s = g.createLinearGradient(0, 590, 0, h);
-    s.addColorStop(0, '#f08a7c'); s.addColorStop(0.5, '#4a5aa8'); s.addColorStop(1, '#161a3d');
-    g.fillStyle = s; g.fillRect(0, 590, w, h - 590);
-    for (let i = 0; i < 16; i++) {
-      const y = 600 + i * 11, half = 96 + i * 9 + Math.sin(i * 2.1) * 26;
-      g.fillStyle = `rgba(255,236,180,${0.75 - i * 0.04})`;
-      g.fillRect(700 - half, y, half * 2, 4);
-    }
-    return c;
-  }
-
   // ---------- UI ----------
   const css = c => `rgb(${c.join(' ')})`;
   SETS.forEach((set, i) => {
@@ -527,7 +603,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
   });
   ['dot', 'grain', 'shift'].forEach(id => $(id).addEventListener('input', draw));
   const file = $('file');
-  $('open').onclick = out.onclick = () => file.click();
+  $('open').onclick = out.onclick = $('platen').onclick = () => file.click();
   file.onchange = () => { openFile(file.files[0]); file.value = ''; };
   $('save').onclick = save;
   addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag'); });
@@ -535,7 +611,6 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
   addEventListener('drop', e => { e.preventDefault(); document.body.classList.remove('drag'); openFile(e.dataTransfer.files[0]); });
   addEventListener('paste', e => openFile([...e.clipboardData.files][0]));
 
-  setSource(sample());
 })();
 </script>
 <!--/page-->
