@@ -71,9 +71,6 @@ body {
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   padding-bottom: 14px;
-  overflow: hidden;
-  overflow: clip;
-  overflow-clip-margin: 0px;
 }
 .sheet {
   display: block;
@@ -85,14 +82,17 @@ body {
   cursor: pointer;
   transition: transform .2s ease;
 }
-/* Before a photo arrives, the stage is the scanner glass: place the original here. */
+/* The stage is the machine's glass bed: it stays put, and each print lands on top of it. */
 .platen {
   appearance: none;
   position: relative;
-  height: min(100%, 520px);
-  aspect-ratio: 4 / 3;
-  max-width: 100%;
-  padding: 0;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  max-width: 1040px;
+  padding: 30px 26px 26px 30px;
   border: 12px solid var(--dock);
   border-radius: 16px;
   background: linear-gradient(135deg, var(--glass-hi), var(--glass) 45%, var(--glass) 70%, var(--glass-hi));
@@ -125,7 +125,7 @@ body {
 .platen .corner { position: absolute; top: 5px; left: 5px; width: 13px; height: 13px; }
 .platen .guide {
   position: absolute;
-  inset: 16% 22%;
+  inset: 18% 26%;
   display: grid;
   place-items: center;
   border: 1.5px dashed currentColor;
@@ -133,30 +133,8 @@ body {
   opacity: .8;
 }
 .platen .guide svg { width: 34px; height: 34px; }
-.platen canvas {
-  position: absolute;
-  inset: 7%;
-  width: 86%;
-  height: 86%;
-  object-fit: contain;
-  filter: brightness(.82) saturate(.9);
-}
-.platen .lamp {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 16%;
-  background: linear-gradient(90deg, transparent, rgb(from var(--lamp) r g b / .1) 55%, rgb(from var(--lamp) r g b / .5) 92%, var(--lamp) 97%, transparent);
-  mix-blend-mode: screen;
-  transform: translateX(-100%);
-  animation: idle-scan 5.5s ease-in-out infinite;
-  pointer-events: none;
-}
-@keyframes idle-scan { 0% { transform: translateX(-100%); } 40%, 100% { transform: translateX(640%); } }
-.platen.scanning .guide { display: none; }
-.platen.scanning .lamp { animation: none; }
-.platen:not(.scanning) canvas { display: none; }
+.platen.loaded .guide { display: none; }
+.platen .sheet { position: relative; z-index: 1; }
 body.drag .platen { transform: scale(1.02); color: var(--lamp); }
 body.drag .sheet { transform: scale(.97) rotate(-.6deg); }
 
@@ -276,7 +254,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
 .act[disabled] { opacity: .4; cursor: default; }
 
 :is(.ink, .act, input):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { .sheet, .ink i, .platen { transition: none; } .platen .lamp { animation: none; } .printing .led { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .sheet, .ink i, .platen { transition: none; } .printing .led { animation: none; } }
 @media (max-width: 520px) {
   input[type="range"] { width: 72px; }
   .dials { gap: 10px; }
@@ -284,13 +262,11 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
 </style>
 
 <main class="stage">
-  <button class="platen" id="platen" title="Open a photo" aria-label="Open a photo">
+  <div class="platen" id="platen">
     <svg class="corner" viewBox="0 0 13 13" fill="currentColor" aria-hidden="true"><path d="M0 0h13L0 13z"/></svg>
     <span class="guide"><svg viewBox="0 0 34 34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M17 8v18M8 17h18"/></svg></span>
-    <canvas id="orig" width="8" height="8"></canvas>
-    <i class="lamp"></i>
-  </button>
-  <canvas class="sheet" id="out" width="8" height="8" title="Open a photo" hidden></canvas>
+    <canvas class="sheet" id="out" width="8" height="8" hidden></canvas>
+  </div>
 </main>
 
 <div class="dock" id="dock">
@@ -529,30 +505,14 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
     state.planes = separate(state.pixels, SETS[state.set]);
     print(feed);
   }
-  // A new original goes on the glass, the lamp reads it once, then the print feeds out.
-  let load = 0;
-  async function setSource(source) {
-    const id = ++load, platen = $('platen');
+  function setSource(source) {
     state.source = source;
     state.pixels = rasterize(source, PREVIEW);
-    state.planes = separate(state.pixels, SETS[state.set]);
     out.width = state.pixels.width; out.height = state.pixels.height;
+    out.hidden = false;
+    $('platen').classList.add('loaded');
     $('save').disabled = false;
-    if (!still.matches) {
-      const orig = $('orig');
-      orig.width = out.width; orig.height = out.height;
-      orig.getContext('2d').putImageData(state.pixels, 0, 0);
-      out.hidden = true; platen.hidden = false;
-      platen.classList.add('scanning');
-      $('dock').classList.add('printing');
-      await platen.querySelector('.lamp').animate(
-        [{ transform: 'translateX(-100%)' }, { transform: 'translateX(640%)' }],
-        { duration: 900, easing: 'cubic-bezier(.4, 0, .6, 1)' }).finished.catch(() => {});
-      if (id !== load) return;
-      platen.classList.remove('scanning');
-    }
-    platen.hidden = true; out.hidden = false;
-    print(true);
+    reseparate(true);
   }
   async function openFile(file) {
     if (!file || !file.type.startsWith('image/')) return;
@@ -603,7 +563,7 @@ input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; border-radius
   });
   ['dot', 'grain', 'shift'].forEach(id => $(id).addEventListener('input', draw));
   const file = $('file');
-  $('open').onclick = out.onclick = $('platen').onclick = () => file.click();
+  $('open').onclick = $('platen').onclick = () => file.click();
   file.onchange = () => { openFile(file.files[0]); file.value = ''; };
   $('save').onclick = save;
   addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag'); });
