@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+<title>Deep Time Globe</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=DM+Mono:wght@400;500&family=Geologica:wght@300;400;500&display=swap">
+<style>
+/* Layout: one full-bleed live render of the planet. Type sits straight on space, with no panels.
+   The geologic time scale is the navigation, drawn in the colours of the official ICS chart. */
+:root{
+  --void:#04050a;            /* space */
+  --ink:#ece8df;             /* primary text, warm starlight */
+  --dim:#a09d94;             /* secondary text */
+  --faint:rgba(236,232,223,.17); /* hairlines */
+  --eon:#AE027E;             /* colour of the current ICS unit, set by script */
+  --heat:#ffb36b;            /* focus and active controls */
+  --display:"Bodoni Moda","Didot","Bodoni 72",Georgia,serif;
+  --body:"Geologica","Helvetica Neue",Arial,sans-serif;
+  --mono:"DM Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--void);color:var(--ink);font-family:var(--body);font-weight:300;overflow:hidden;-webkit-font-smoothing:antialiased}
+#app{position:relative;height:100%;overflow:hidden;background:var(--void)}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#gl.drag{cursor:grabbing}
+.scrim{position:absolute;inset:0;pointer-events:none;
+  background:
+    linear-gradient(to top,rgba(4,5,10,.92) 0,rgba(4,5,10,.55) 16%,rgba(4,5,10,0) 34%),
+    radial-gradient(62% 75% at 0% 74%,rgba(4,5,10,.86),rgba(4,5,10,0) 72%),
+    radial-gradient(40% 60% at 100% 62%,rgba(4,5,10,.6),rgba(4,5,10,0) 70%)}
+#flash{position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:radial-gradient(circle at 50% 42%,#fff 0,#ffd9a0 30%,rgba(255,140,60,.5) 60%,rgba(255,90,30,0) 85%)}
+
+.ui{position:absolute;inset:0;display:grid;pointer-events:none;
+  grid-template-columns:minmax(0,25rem) minmax(0,1fr) minmax(0,13.5rem);
+  grid-template-rows:auto minmax(0,1fr) auto;
+  grid-template-areas:"top top top" "story . dials" "time time time";
+  column-gap:1rem;row-gap:.75rem;padding-block:14px 12px;
+  padding-left:max(22px,env(safe-area-inset-left,0px));padding-right:max(22px,env(safe-area-inset-right,0px))}
+.ui button,.ui .track{pointer-events:auto}
+
+/* header */
+.top{grid-area:top;display:flex;align-items:baseline;justify-content:space-between;gap:1rem;min-width:0}
+.mark{display:flex;align-items:baseline;gap:.9rem;min-width:0}
+.mark-name{font-family:var(--display);font-size:1.25rem;font-weight:500;letter-spacing:.34em;text-transform:uppercase;white-space:nowrap}
+.mark-sub{font-family:var(--mono);font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tools{display:flex;gap:.4rem;flex:none}
+.txtbtn{font:400 .68rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);background:none;border:1px solid var(--faint);border-radius:99px;padding:.5rem .8rem;cursor:pointer;transition:color .2s,border-color .2s}
+.txtbtn:hover{color:var(--ink);border-color:var(--dim)}
+.txtbtn[aria-pressed="true"]{color:var(--void);background:var(--ink);border-color:var(--ink)}
+button:focus-visible{outline:2px solid var(--heat);outline-offset:2px}
+
+/* story */
+.story{grid-area:story;align-self:end;min-width:0;display:flex;flex-direction:column;gap:.55rem;padding-bottom:.5rem;text-shadow:0 1px 14px rgba(4,5,10,.9)}
+.kicker{display:flex;align-items:center;gap:.55rem;font:400 .7rem/1.2 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.swatch{flex:none;width:.7rem;height:.7rem;background:var(--eon);box-shadow:0 0 12px var(--eon);transition:background .6s,box-shadow .6s}
+.age{display:flex;flex-direction:column;gap:.1rem}
+#ageNum{font-family:var(--display);font-weight:400;font-size:clamp(3.4rem,11vh,6.4rem);line-height:.9;letter-spacing:-.02em;font-variant-numeric:lining-nums}
+#ageUnit{font:400 .72rem/1.3 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.words{display:flex;flex-direction:column;gap:.5rem}
+.words.in{animation:rise .7s cubic-bezier(.2,.7,.2,1)}
+@keyframes rise{from{opacity:.0;transform:translateY(8px)}to{opacity:1;transform:none}}
+#title{margin:0;font-family:var(--display);font-style:italic;font-weight:500;font-size:clamp(1.45rem,3.6vh,2rem);line-height:1.12;text-wrap:balance}
+#body{margin:0;font-size:.94rem;line-height:1.55;max-width:44ch;color:var(--ink)}
+.note{margin:0;font:400 .7rem/1.5 var(--mono);color:var(--dim);max-width:52ch;padding-left:.8rem;border-left:1px solid var(--eon);transition:border-color .6s}
+
+/* dials */
+.dials{grid-area:dials;align-self:end;display:flex;flex-direction:column;gap:.95rem;padding-bottom:.6rem;min-width:0;text-shadow:0 1px 12px rgba(4,5,10,.9)}
+.clock{display:flex;align-items:center;gap:.7rem}
+.clock svg{flex:none;width:2.9rem;height:2.9rem}
+.clock .ring{fill:none;stroke:var(--faint);stroke-width:1.5}
+.clock .arc{fill:none;stroke:var(--eon);stroke-width:2.5;transition:stroke .6s}
+.clock .hand{stroke:var(--ink);stroke-width:1.5;stroke-linecap:round}
+.lab{font:400 .62rem/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.val{font:500 1.18rem/1.15 var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.val small{font-size:.68rem;font-weight:400;color:var(--dim);letter-spacing:.06em;margin-left:.25em}
+.dial{display:flex;flex-direction:column;gap:.15rem;min-width:0}
+.spark{position:relative;height:20px;margin-top:.2rem}
+.spark svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.spark path{fill:none;stroke:var(--dim);stroke-width:1;vector-effect:non-scaling-stroke}
+.spark i{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--ink)}
+.spark b{position:absolute;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;border-radius:50%;background:var(--ink);box-shadow:0 0 8px var(--ink)}
+
+/* timeline */
+.time{grid-area:time;display:flex;flex-direction:column;gap:.35rem;min-width:0}
+.bar{display:flex;align-items:center;gap:.5rem;min-width:0}
+.rnd{flex:none;width:2.1rem;height:2.1rem;border-radius:50%;display:grid;place-items:center;background:none;border:1px solid var(--faint);color:var(--ink);cursor:pointer;transition:border-color .2s,background .2s}
+.rnd:hover{border-color:var(--dim)}
+.rnd svg{width:.8rem;height:.8rem;fill:currentColor}
+#btnPlay{width:2.5rem;height:2.5rem;background:var(--ink);color:var(--void);border-color:var(--ink)}
+#btnPlay svg{width:.95rem;height:.95rem}
+.count{font:400 .68rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-left:.4rem;white-space:nowrap}
+.hint{margin-left:auto;font:400 .66rem/1.3 var(--mono);letter-spacing:.06em;color:var(--dim);text-align:right;min-width:0;transition:opacity 1s}
+.eons{position:relative;height:.9rem;font:400 .6rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.eons span{position:absolute;top:0;white-space:nowrap}
+.track{position:relative;cursor:ew-resize;touch-action:none;padding-block:13px 4px}
+.strip{display:flex;height:15px;border-radius:2px;overflow:hidden}
+.seg{flex:var(--d) 0 0;min-width:0;display:flex;align-items:center;justify-content:center;overflow:hidden;
+  font:500 .58rem/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:#14060f;white-space:nowrap;box-shadow:inset -1px 0 0 rgba(4,5,10,.55)}
+.seg.lt{color:#fff}
+.head{position:absolute;top:11px;bottom:0;width:0;pointer-events:none}
+.head::before{content:"";position:absolute;left:-1px;top:0;bottom:0;width:2px;background:var(--ink);box-shadow:0 0 10px 1px rgba(255,255,255,.7)}
+.head::after{content:"";position:absolute;left:-5px;top:-4px;border:5px solid transparent;border-top-color:var(--ink)}
+.dot{position:absolute;top:0;width:13px;height:13px;margin:0 0 0 -6.5px;padding:0;background:none;border:0;cursor:pointer}
+.dot::before{content:"";position:absolute;inset:3.5px;background:var(--void);border:1px solid var(--ink);transform:rotate(45deg);transition:transform .2s,background .2s}
+.dot:hover::before{transform:rotate(45deg) scale(1.5)}
+.dot.on::before{background:var(--ink);transform:rotate(45deg) scale(1.35)}
+.zoom{display:block;width:100%;height:14px;margin-bottom:-9px}
+.zoom polygon{fill:rgba(154,217,221,.2)}
+.zoom line{stroke:rgba(154,217,221,.45);stroke-width:1;vector-effect:non-scaling-stroke}
+.ends{display:flex;justify-content:space-between;font:400 .58rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+
+/* about */
+#about{position:absolute;top:3.4rem;right:max(22px,env(safe-area-inset-right,0px));width:min(22rem,calc(100% - 44px));padding:1rem 1.1rem;
+  background:rgba(10,11,18,.94);border:1px solid var(--faint);border-radius:4px;font-size:.82rem;line-height:1.55;color:var(--ink);z-index:5}
+#about p{margin:0 0 .6rem}#about p:last-child{margin:0;color:var(--dim)}
+#nogl{position:absolute;inset:0;display:grid;place-items:center;padding:2rem;text-align:center;font-size:1rem;color:var(--ink);background:var(--void);z-index:9}
+
+@media (max-height:640px){.note{display:none}#body{font-size:.86rem;line-height:1.45}.dials{gap:.6rem}.spark{display:none}}
+@media (max-width:820px){
+  .ui{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto auto;grid-template-areas:"top" "." "story" "dials" "time";
+    padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));row-gap:.6rem}
+  .scrim{background:linear-gradient(to top,rgba(4,5,10,.96) 0,rgba(4,5,10,.8) 38%,rgba(4,5,10,0) 62%)}
+  .mark-sub,.hint,.note,.spark,.clock svg,.count{display:none}
+  .mark-name{font-size:1.05rem;letter-spacing:.28em}
+  .story{gap:.4rem;padding-bottom:0}
+  #ageNum{font-size:clamp(2.6rem,8vh,3.6rem)}
+  #title{font-size:1.3rem}
+  #body{font-size:.84rem;line-height:1.45}
+  .dials{display:grid;grid-template-columns:repeat(5,minmax(0,auto));justify-content:space-between;gap:.5rem;padding-bottom:0;border-top:1px solid var(--faint);padding-top:.5rem}
+  .lab{font-size:.5rem;letter-spacing:.04em}
+  .val{font-size:.74rem}.val small{font-size:.54rem;margin-left:.15em}
+  .seg{font-size:.5rem}
+  .eons span:first-child{display:none}
+  #about{right:max(16px,env(safe-area-inset-right,0px));width:calc(100% - 32px)}
+}
+@media (prefers-reduced-motion:reduce){.words.in{animation:none}}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <canvas id="gl" role="img" aria-label="Live rendering of the Earth at the selected moment in its history"></canvas>
+  <div class="scrim"></div>
+  <div id="flash"></div>
+  <div class="ui">
+    <header class="top">
+      <div class="mark"><span class="mark-name">Deep Time</span><span class="mark-sub">Earth&rsquo;s 4.54 billion years, replayed</span></div>
+      <div class="tools">
+        <button class="txtbtn" id="btnSound" aria-pressed="false">Sound</button>
+        <button class="txtbtn" id="btnAbout" aria-expanded="false" aria-controls="about">About</button>
+      </div>
+    </header>
+
+    <section class="story">
+      <div class="kicker"><i class="swatch"></i><span id="kicker">Hadean Eon</span></div>
+      <div class="age"><span id="ageNum">4.54</span><span id="ageUnit">billion years ago</span></div>
+      <div class="words" id="words" aria-live="polite">
+        <h1 id="title">A world made of collisions</h1>
+        <p id="body"></p>
+        <p class="note" id="note"></p>
+      </div>
+    </section>
+
+    <aside class="dials" id="dials" aria-label="Conditions at this moment">
+      <div class="clock">
+        <svg viewBox="0 0 40 40" aria-hidden="true">
+          <circle class="ring" cx="20" cy="20" r="17"></circle>
+          <circle class="arc" id="clockArc" cx="20" cy="20" r="17" transform="rotate(-90 20 20)" stroke-dasharray="0 107"></circle>
+          <line class="hand" id="clockHand" x1="20" y1="20" x2="20" y2="7"></line>
+        </svg>
+        <div class="dial"><span class="lab">History as one day</span><span class="val" id="clockTxt">00:00:00</span></div>
+      </div>
+    </aside>
+
+    <footer class="time">
+      <div class="bar">
+        <button class="rnd" id="btnPrev" aria-label="Previous chapter"><svg viewBox="0 0 10 10"><path d="M8.5 1v8L3 5zM1.5 1h1.4v8H1.5z"/></svg></button>
+        <button class="rnd" id="btnPlay" aria-label="Pause"><svg viewBox="0 0 10 10"><path id="playIcon" d="M2 1h2.2v8H2zM5.8 1H8v8H5.8z"/></svg></button>
+        <button class="rnd" id="btnNext" aria-label="Next chapter"><svg viewBox="0 0 10 10"><path d="M1.5 1v8L7 5zM7.1 1h1.4v8H7.1z"/></svg></button>
+        <span class="count" id="count">Chapter 1 of 18</span>
+        <span class="hint" id="hint">Drag to turn &middot; scroll to zoom &middot; click the planet to drop an asteroid</span>
+      </div>
+      <div class="eons" id="eons"></div>
+      <div class="track" id="track1" role="slider" aria-label="Whole history, 4.54 billion years" aria-valuemin="0" aria-valuemax="4540" aria-valuenow="4540" tabindex="-1">
+        <div class="strip" id="strip1"></div><div class="head" id="head1"></div>
+      </div>
+      <svg class="zoom" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true">
+        <polygon id="zoomPoly" points="88.13,0 100,0 100,10 0,10"></polygon>
+        <line id="zoomL" x1="88.13" y1="0" x2="0" y2="10"></line><line x1="100" y1="0" x2="100" y2="10"></line>
+      </svg>
+      <div class="track" id="track2" role="slider" aria-label="The last 539 million years, enlarged" aria-valuemin="0" aria-valuemax="539" aria-valuenow="539" tabindex="-1">
+        <div class="strip" id="strip2"></div><div class="head" id="head2" hidden></div>
+      </div>
+      <div class="ends"><span>538.8 million years ago</span><span>The last eighth, enlarged</span><span>Now</span></div>
+    </footer>
+  </div>
+
+  <div id="about" hidden>
+    <p>The planet is drawn live, one pixel at a time, from a handful of numbers that change with the date: how molten the surface is, sea level, ice, haze, oxygen, plant cover and so on.</p>
+    <p>Dates and chapter facts follow the published record. The colours of the time scale are those of the International Chronostratigraphic Chart.</p>
+    <p>The continents are generated, so their outlines are not a map of the real ones. The Moon is drawn closer than true scale. Readings for the early Earth are mid-range estimates and carry wide error bars.</p>
+  </div>
+  <div id="nogl" hidden>This page draws the planet with WebGL 2, which this browser has switched off or does not support.</div>
+</div>
+
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ───────────────────────── the story ───────────────────────── */
+const T0=4540;
+const CH=[
+ {a:4540,t:'A world made of collisions',b:'Dust and rock circling the young Sun fall together into a planet. Every impact adds heat. The surface is an ocean of magma under a sky of vaporised rock, and there is no Moon yet.',n:'The date comes from meteorites, the leftover building material, which formed 4,567 million years ago.'},
+ {a:4510,t:'The giant impact',b:'A body the size of Mars, named Theia, strikes the young Earth. The debris thrown into orbit gathers into the Moon, perhaps within a few thousand years. It hangs about fifteen times closer than it does today.',n:'Rocks brought back by Apollo carry the same oxygen isotope signature as Earth.'},
+ {a:4400,t:'The first rain',b:'The surface cools and a dark crust forms. Steam condenses out of the sky and rains for thousands of years, filling the basins with the first ocean.',n:'Zircon crystals from the Jack Hills of Western Australia, 4.4 billion years old, grew in the presence of liquid water.'},
+ {a:3900,t:'Bombardment',b:'Asteroids left over from the building of the planets keep falling. The largest boil the top of the ocean. The same storm cut the great basins still visible on the face of the Moon.',n:'Whether this was a sharp spike or the long tail of accretion is still argued.'},
+ {a:3500,t:'Life leaves a mark',b:'Microbes build layered mats in shallow water. The Sun is a quarter dimmer than today, yet the sea stays liquid under a greenhouse sky hazed orange with methane. Dissolved iron tints the ocean green.',n:'Stromatolites in the Pilbara, Western Australia, are 3.48 billion years old.'},
+ {a:2400,t:'The Great Oxidation',b:'Cyanobacteria have been splitting water and releasing oxygen for ages. Now it overwhelms the iron that soaked it up. The seas rust, the methane haze clears, and the sky turns blue.',n:'Most of the iron ore mined today settled out of these oceans as banded iron formations.'},
+ {a:2300,t:'The first snowball',b:'With the methane gone, the greenhouse collapses. Ice advances from the poles to the tropics and may have sealed the whole ocean for millions of years.',n:'Glacial deposits of this age in South Africa were laid down near the equator.'},
+ {a:1800,t:'The boring billion',b:'For a billion years climate and chemistry barely move. Inside that quiet, cells with a nucleus appear, and later sex and bodies made of many cells. The continents gather into one, break up, and gather again.',n:'Days lasted about 19 hours, possibly held there by tides in the atmosphere.'},
+ {a:1000,t:'Rodinia',b:'Nearly all the land is welded into one supercontinent, and it is bare. With no plants to hold soil, rivers run as braided sheets across rock and red dust.',n:'Rodinia is pieced together from mountain belts 1.1 billion years old, now scattered across every continent.'},
+ {a:700,t:'Snowball Earth',b:'Rodinia splits and the climate tips. Ice reaches the equator twice. Volcanoes keep venting carbon dioxide with nothing to absorb it, until the greenhouse grows strong enough to break the ice.',n:'The first of the two freezes, the Sturtian, lasted 57 million years.'},
+ {a:538.8,t:'The Cambrian explosion',b:'After the ice, oxygen climbs and animals diversify fast. Within about 20 million years most of the major body plans exist, with eyes, shells and jointed limbs. The land is still empty.',n:'The Burgess Shale of British Columbia preserves soft-bodied animals from 508 million years ago.'},
+ {a:385,t:'The land turns green',b:'Plants crossed onto land about 470 million years ago. Now the first forests stand, and their roots break rock into soil. They pull carbon dioxide out of the air and cool the planet.',n:'Fossil tree stumps at Gilboa, New York, are 385 million years old.'},
+ {a:300,t:'Coal forests and Pangaea',b:'Swamp forests bury carbon faster than it can rot, and it becomes coal. Oxygen passes 30 percent of the air. The continents close into Pangaea while ice spreads from the south pole.',n:'Meganeura, a relative of dragonflies, had a wingspan of about 70 centimetres.'},
+ {a:252,t:'The Great Dying',b:'Eruptions in Siberia bury millions of square kilometres under lava and flood the air with carbon dioxide. The oceans warm, turn acid and lose their oxygen. About four in five marine species disappear.',n:'It is the largest extinction in the fossil record. Recovery took around ten million years.'},
+ {a:150,t:'Pangaea comes apart',b:'The supercontinent splits and the Atlantic opens at the speed fingernails grow. The climate is warm, the poles are free of ice, and shallow seas flood the continents. Dinosaurs rule the land.',n:'Archaeopteryx, from the Solnhofen limestone of Bavaria, is 150 million years old.'},
+ {a:66,t:'Chicxulub',b:'An asteroid about ten kilometres wide strikes the Yucatán. Soot and dust block the Sun and photosynthesis stalls. Three quarters of all species die, including every dinosaur that is not a bird.',n:'A thin layer of clay rich in iridium marks the moment in rocks around the world.'},
+ {a:2.6,t:'The ice ages',b:'Antarctica froze over 34 million years ago, and now the north follows. Ice sheets advance and retreat in time with wobbles in Earth’s orbit. In Africa, apes that walk upright begin to shape stone tools.',n:'The ice has come and gone about fifty times since.'},
+ {a:0,t:'Now',b:'Our species is about 300,000 years old. On the one-day clock we arrive less than six seconds before midnight, and all of written history fits in the last tenth of a second. The night side has started to glow.',n:'Everything you watched before this chapter left its record in rock.'}
+];
+const N=CH.length;
+
+/* ICS units: [start Ma, end Ma, name, rank, colour, light text?] */
+const EONS=[[4540,4031,'Hadean','#AE027E'],[4031,2500,'Archean','#F0047F'],[2500,538.8,'Proterozoic','#F73563'],[538.8,0,'Phanerozoic','#9AD9DD']];
+const ERAS=[[4540,4031,'Hadean','','#AE027E',1],[4031,3600,'Eoarchean','Era','#DA037F',1],[3600,3200,'Paleoarchean','Era','#F4449F',0],[3200,2800,'Mesoarchean','Era','#F768A9',0],[2800,2500,'Neoarchean','Era','#F99BC1',0],
+ [2500,1600,'Paleoproterozoic','Era','#F74370',0],[1600,1000,'Mesoproterozoic','Era','#FDB462',0],[1000,538.8,'Neoproterozoic','Era','#FEB342',0],
+ [538.8,251.9,'Paleozoic','Era','#99C08D',0],[251.9,66,'Mesozoic','Era','#67C5CA',0],[66,0,'Cenozoic','Era','#F2F91D',0]];
+const PERIODS=[[1000,720,'Tonian','#FEBF4E'],[720,635,'Cryogenian','#FECC5C'],[635,538.8,'Ediacaran','#FED96A'],
+ [538.8,485.4,'Cambrian','#7FA056'],[485.4,443.8,'Ordovician','#009270'],[443.8,419.2,'Silurian','#B3E1B6'],[419.2,358.9,'Devonian','#CB8C37'],[358.9,298.9,'Carboniferous','#67A599'],[298.9,251.9,'Permian','#F04028'],
+ [251.9,201.4,'Triassic','#812B92'],[201.4,145,'Jurassic','#34B2C9'],[145,66,'Cretaceous','#7FC64E'],[66,23.03,'Paleogene','#FD9A52'],[23.03,2.58,'Neogene','#FFE619'],[2.58,0,'Quaternary','#F9F97F']];
+const find=(list,age)=>list.find(r=>age<=r[0]&&age>=r[1])||null;
+
+/* ───────────────────────── tracks: value against age ───────────────────────── */
+const mix=(a,b,t)=>Array.isArray(a)?a.map((v,i)=>lerp(v,b[i],t)):lerp(a,b,t);
+const tr=pts=>age=>{
+  if(age>=pts[0][0])return pts[0][1];
+  for(let i=1;i<pts.length;i++)if(age>=pts[i][0]){const p=pts[i-1],q=pts[i];return mix(p[1],q[1],(p[0]-age)/(p[0]-q[0]));}
+  return pts[pts.length-1][1];};
+const TR={
+ molten:tr([[4540,1],[4480,1],[4435,.22],[4405,.03],[4380,0]]),
+ water:tr([[4445,0],[4405,1]]),
+ sea:tr([[4400,.38],[3800,.30],[3000,.235],[2500,.17],[1800,.135],[0,.11]]),
+ cluster:tr([[3300,.2],[3100,.5],[2700,.6],[2300,.2],[1800,.8],[1400,.3],[1000,.95],[750,.3],[600,.6],[500,.15],[400,.3],[300,.9],[250,1],[175,.7],[100,.3],[0,.1]]),
+ rust:tr([[2450,0],[2250,1]]),
+ veg:tr([[480,0],[440,.12],[385,.65],[320,1],[253,.95],[251.5,.3],[245,.5],[220,.9],[0,.9]]),
+ ice:tr([[2450,0],[2400,.06],[2320,1],[2260,1],[2200,.14],[1800,.1],[1000,.12],[730,.16],[705,1],[665,1],[655,.25],[645,1],[637,1],[630,.08],[538,.08],[460,.1],[445,.3],[435,.08],[360,.12],[300,.32],[270,.2],[252,.02],[40,0],[34,.1],[3,.15],[2.6,.2],[.03,.24],[.02,.36],[.0117,.17],[0,.17]]),
+ haze:tr([[4540,.12],[4511,.12],[4505,.5],[4450,.8],[4400,.42],[4100,.3],[3500,.22],[2450,.3],[2330,.04],[254,.03],[252,.4],[250,.08],[248,.03],[0,.02]]),
+ hazeCol:tr([[4540,[.6,.35,.2]],[4440,[.82,.76,.7]],[4300,[.8,.75,.68]],[3800,[.85,.55,.28]],[2400,[.9,.55,.25]],[2300,[.8,.8,.82]],[253,[.8,.8,.8]],[252,[.45,.32,.22]],[250,[.8,.8,.8]],[0,[.85,.87,.9]]]),
+ atmo:tr([[4540,[.75,.4,.22]],[4400,[.7,.5,.4]],[3500,[.95,.52,.25]],[2450,[.95,.55,.28]],[2300,[.35,.58,1]],[0,[.3,.56,1]]]),
+ ocean:tr([[4400,[.03,.07,.08]],[3900,[.03,.13,.11]],[3500,[.03,.2,.13]],[2450,[.035,.2,.12]],[2300,[.05,.1,.12]],[1800,[.035,.06,.13]],[1000,[.03,.07,.17]],[600,[.02,.09,.24]],[0,[.012,.085,.26]]]),
+ volc:tr([[4440,0],[4400,.55],[3900,.45],[3500,.14],[2600,.05],[2450,0],[254,0],[252,1],[251,.5],[249,0],[67,0],[66,.35],[64,0]]),
+ ring:tr([[4540,0],[4510.5,0],[4509.5,1],[4480,.5],[4465,0]]),
+ moonVis:tr([[4500,0],[4470,1]]),
+ moonHot:tr([[4500,1],[4380,0]]),
+ moonD:tr([[4510,1.9],[4400,2.3],[3000,2.9],[0,3.4]]),
+ bomb:tr([[4540,.5],[4450,.35],[4100,.8],[3900,1.5],[3750,.5],[3500,.06],[3200,0]]),
+ /* readouts */
+ day:tr([[4540,4],[4510,5],[4400,6],[4000,9],[3500,12],[2500,17],[2000,19],[1000,19.5],[620,21.9],[380,22],[250,22.7],[100,23.5],[0,24]]),
+ o2:tr([[4540,0],[2450,0],[2300,1],[2000,2],[1800,.5],[800,.5],[600,5],[540,10],[420,18],[300,32],[250,16],[200,14],[100,24],[50,22],[0,20.9]]),
+ moonKm:tr([[4505,25],[4400,100],[4000,200],[3200,270],[2500,320],[620,371],[0,384.4]])
+};
+const sunL=age=>1/(1+0.4*age/4570);
+
+/* drift phase: continents move further in longer chapters, never still */
+const PHI=[0];for(let i=1;i<N;i++)PHI.push(PHI[i-1]+clamp(.12*Math.sqrt((CH[i-1].a-CH[i].a)/10),.06,.8));
+
+/* ───────────────────────── small linear algebra (mat3, column-major) ───────────────────────── */
+const norm=v=>{const l=Math.hypot(v[0],v[1],v[2])||1;return[v[0]/l,v[1]/l,v[2]/l]};
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+function axisAngle(ax,an){const[x,y,z]=norm(ax),c=Math.cos(an),s=Math.sin(an),t=1-c;
+  return[t*x*x+c,t*x*y+s*z,t*x*z-s*y, t*x*y-s*z,t*y*y+c,t*y*z+s*x, t*x*z+s*y,t*y*z-s*x,t*z*z+c];}
+function mmul(a,b){const o=new Array(9);for(let c=0;c<3;c++)for(let r=0;r<3;r++)o[c*3+r]=a[r]*b[c*3]+a[3+r]*b[c*3+1]+a[6+r]*b[c*3+2];return o;}
+const mv=(m,v)=>[m[0]*v[0]+m[3]*v[1]+m[6]*v[2],m[1]*v[0]+m[4]*v[1]+m[7]*v[2],m[2]*v[0]+m[5]*v[1]+m[8]*v[2]];
+const mT=m=>[m[0],m[3],m[6],m[1],m[4],m[7],m[2],m[5],m[8]];
+
+/* ───────────────────────── shader ───────────────────────── */
+const VS=`#version 300 es
+in vec2 p;void main(){gl_Position=vec4(p,0.,1.);}`;
+const FS=`#version 300 es
+precision highp float;
+out vec4 O;
+uniform vec2 uRes;uniform float uTime;uniform vec3 uCam;uniform mat3 uView;uniform vec2 uShift;uniform float uFocal;
+uniform vec3 uSun;uniform mat3 uRot;uniform mat3 uD1;uniform mat3 uD2;uniform vec3 uCDir;uniform vec3 uAxis;
+uniform float uMolten,uWater,uSea,uCluster,uRust,uVeg,uIce,uHaze,uCloud,uCity,uVolc,uDust,uSunL,uRing,uRingT,uMoonHot,uMoonVis,uO2,uMoonAng;
+uniform vec3 uOcean,uAtmo,uHazeCol,uMoon;
+uniform vec4 uImp[6];uniform float uImpS[6];
+
+float sq(float x){return x*x;}
+float hash(vec3 p){p=fract(p*0.3183099+0.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float hash2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.0-2.0*f);
+  return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);}
+const mat3 M3=mat3(0.00,0.80,0.60,-0.80,0.36,-0.48,-0.60,-0.48,0.64);
+float fbm(vec3 p,int oct){float a=0.5,s=0.0;for(int i=0;i<oct;i++){s+=a*noise(p);p=M3*p*2.02;a*=0.5;}return s;}
+/* glow of hot rock, dull red to white */
+vec3 bb(float t){t=clamp(t,0.0,1.6);return vec3(1.6,0.42,0.06)*t+vec3(1.2,0.8,0.25)*t*t*t+vec3(0.5,0.55,0.55)*pow(t,7.0);}
+float sph(vec3 ro,vec3 rd,vec3 c,float r){vec3 oc=ro-c;float b=dot(oc,rd);float h=b*b-dot(oc,oc)+r*r;if(h<0.0)return -1.0;return -b-sqrt(h);}
+
+float terrain(vec3 p){
+  vec3 a=uD1*p,b=uD2*p;
+  float c=fbm(a*1.3+vec3(3.1,7.7,1.3),3)*0.62+fbm(b*1.9+vec3(11.0,2.0,5.0),3)*0.38;
+  c=(c-0.44)*2.4;
+  c+=uCluster*(smoothstep(-0.2,0.9,dot(p,uCDir))*0.6-0.2);
+  float d=fbm(a*6.0+vec3(1.7),5)-0.47;
+  return c+d*0.42;
+}
+float cloudD(vec3 p){
+  float ca=uTime*0.012,cs=sin(ca),cc=cos(ca);
+  vec3 q=vec3(cc*p.x+cs*p.z,p.y,-cs*p.x+cc*p.z);
+  float w=noise(q*2.2+vec3(0.0,uTime*0.02,0.0));
+  vec3 q2=q*vec3(3.2,5.0,3.2)+vec3(w*1.6,w*0.4,-w*1.3);
+  float d=fbm(q2,5);
+  float th=mix(0.76,0.30,uCloud);
+  return smoothstep(th,th+0.22,d)*step(0.001,uCloud);
+}
+vec3 sky(vec3 rd){
+  vec3 c=vec3(0.0);
+  for(int l=0;l<3;l++){
+    float sc=110.0+float(l)*95.0;vec3 g=rd*sc;vec3 id=floor(g);vec3 f=fract(g)-0.5;
+    float h=hash(id+float(l)*31.7);
+    vec3 off=vec3(hash(id+11.0),hash(id+23.0),hash(id+37.0))-0.5;
+    float d=length(f-off*0.6);
+    float br=pow(fract(h*57.3),6.0)*1.8+0.10;
+    vec3 tint=mix(vec3(1.0,0.80,0.62),vec3(0.68,0.80,1.0),fract(h*13.7));
+    c+=step(0.84,h)*tint*br*(1.0-smoothstep(0.0,0.075,d));
+  }
+  vec3 gn=normalize(vec3(0.35,0.8,-0.5));float gb=dot(rd,gn);float band=exp(-gb*gb*12.0);
+  float mw=fbm(rd*5.0+2.0,5);float dl=fbm(rd*9.0+7.0,4);
+  c+=vec3(0.15,0.14,0.21)*band*mw*mw*1.7*(1.0-0.85*smoothstep(0.42,0.66,dl)*band);
+  c+=vec3(0.22,0.15,0.10)*exp(-gb*gb*70.0)*mw*mw*mw*1.2;
+  return c;
+}
+float eclipse(vec3 pw){
+  if(uMoonVis<0.5)return 1.0;
+  vec3 m=uMoon-pw;float al=dot(m,uSun);if(al<0.0)return 1.0;
+  return smoothstep(0.10,0.34,length(m-uSun*al));
+}
+vec3 planet(vec3 pw,vec3 rd,float sunI){
+  vec3 p=uRot*pw;
+  float h=terrain(p);
+  vec3 t1=normalize(cross(p,vec3(0.0,1.0,0.013)));vec3 t2=cross(p,t1);
+  const float e=0.006;
+  float h1=terrain(normalize(p+t1*e));float h2=terrain(normalize(p+t2*e));
+  vec3 g=(t1*(h1-h)+t2*(h2-h))/e;
+  float el=h-uSea;
+  float land=smoothstep(0.0,0.01,el);
+  vec3 a=uD1*p;
+  float lat=abs(p.y);
+  float n1=noise(a*9.0+3.0),n2=noise(a*24.0+9.0);
+  float mt=smoothstep(0.16,0.34,el);
+  /* ice */
+  float iceLat=1.12-uIce*1.2;
+  float ice=smoothstep(iceLat-0.03,iceLat+0.03,lat+(n1-0.5)*0.16+land*0.05+max(el,0.0)*0.25)*uWater;
+  /* land */
+  vec3 rock=mix(vec3(0.10,0.095,0.09),vec3(0.36,0.31,0.26),n1*0.7+n2*0.3);
+  float dry=exp(-sq((lat-0.40)/0.15));
+  vec3 red=mix(vec3(0.50,0.24,0.12),vec3(0.70,0.52,0.32),dry*0.7+n2*0.3);
+  vec3 bare=mix(rock,red,uRust*(0.55+0.45*n1));
+  float wet=clamp((1.2-dry*1.25)*(1.0-smoothstep(0.78,1.0,lat))+(n1-0.5)*0.6-max(el-0.1,0.0)*1.5,0.0,1.0);
+  vec3 veg=mix(vec3(0.03,0.15,0.03),vec3(0.17,0.30,0.07),n2);
+  vec3 lc=mix(bare,veg,wet*uVeg);
+  lc=mix(lc,vec3(0.33,0.31,0.30),mt*0.8);
+  /* sea */
+  float depth=clamp(-el*5.0,0.0,1.0);
+  vec3 sea=mix(uOcean*2.4+vec3(0.0,0.07,0.06),uOcean*0.55,smoothstep(0.0,0.6,depth));
+  vec3 alb=mix(sea,lc,land);
+  alb=mix(mix(vec3(0.05,0.045,0.04),rock,land*0.6+0.2),alb,uWater);
+  alb=mix(alb,vec3(0.82,0.88,0.94)*(0.86+0.14*n2),ice);
+  float water=(1.0-land)*uWater*(1.0-ice);
+  /* molten rock and volcanic provinces */
+  vec3 emis=vec3(0.0);
+  if(uMolten>0.002||uVolc>0.002){
+    float hf=fbm(a*3.5+vec3(0.0,uTime*0.015,0.0),4);
+    float rg=1.0-abs(2.0*fbm(a*6.5-vec3(uTime*0.01,0.0,0.0),3)-0.9);rg=pow(clamp(rg,0.0,1.0),6.0);
+    float mol=smoothstep(1.0-uMolten*1.2,1.35-uMolten*1.2,hf*0.75+rg*0.55+0.15)*smoothstep(0.0,0.03,uMolten);
+    float T=mol*(0.10+0.46*smoothstep(0.36,0.72,hf)+rg*0.62);
+    alb=mix(alb,vec3(0.035,0.03,0.028),smoothstep(0.0,0.25,uMolten));
+    emis+=bb(T)*1.15;
+    float prov=smoothstep(0.56,0.72,noise(a*2.3+vec3(7.0,1.0,4.0)))*mix(1.0,land,uWater);
+    float vv=prov*uVolc;
+    alb=mix(alb,vec3(0.045,0.04,0.04),vv*0.85);
+    emis+=bb(vv*(0.12*hf+0.95*rg))*1.3*(1.0-mol);
+  }
+  /* light */
+  vec3 gw=g*uRot;
+  vec3 n=normalize(pw-gw*0.03*land*(1.0-ice*0.7));
+  float nl0=dot(pw,uSun),nl=dot(n,uSun);
+  float dif=clamp(nl,0.0,1.0)*smoothstep(-0.1,0.1,nl0);
+  vec3 setCol=clamp(vec3(1.25)-uAtmo,0.0,1.0);
+  vec3 sunCol=mix(setCol,vec3(1.0,0.97,0.92),smoothstep(-0.05,0.4,nl0))*sunI;
+  vec3 ps=normalize(p+(uRot*uSun)*0.025);
+  float cshad=cloudD(ps);
+  float ec=eclipse(pw);
+  vec3 light=sunCol*dif*(1.0-cshad*0.55)*ec;
+  vec3 amb=uAtmo*0.012+vec3(0.004);
+  vec3 col=alb*(light*1.9+amb);
+  vec3 hv=normalize(uSun-rd);float sdh=max(dot(pw,hv),0.0);
+  float day=smoothstep(-0.05,0.15,nl0);
+  col+=sunCol*(pow(sdh,420.0)*2.2+pow(sdh,40.0)*0.10)*water*day*(1.0-cshad)*ec;
+  col+=sunCol*pow(sdh,40.0)*0.25*ice*day*ec;
+  float fr=pow(1.0-max(dot(pw,-rd),0.0),4.0);
+  col+=uAtmo*fr*0.22*water*day;
+  float night=1.0-smoothstep(-0.15,0.1,nl0);
+  /* city lights */
+  float cl=cloudD(p);
+  if(uCity>0.001){
+    float reg=fbm(a*7.0+vec3(5.0),3);float c1=noise(a*70.0),c2=noise(a*190.0+2.0);
+    float ct=smoothstep(0.40,0.60,reg)*smoothstep(0.55,0.9,c1*0.6+c2*0.6)*land*(1.0-ice)*(1.0-mt)*(1.0-smoothstep(0.6,0.95,lat))*(0.3+wet);
+    emis+=vec3(1.0,0.72,0.36)*ct*uCity*night*1.8;
+  }
+  /* clouds, haze, dust */
+  vec3 day3=sunCol*clamp(nl0*1.2+0.05,0.0,1.0)*ec*1.9+amb;
+  col=mix(col,day3*0.95,cl*0.92);
+  float w2=noise(p*vec3(2.0,6.0,2.0)+vec3(uTime*0.01,0.0,uTime*0.004));
+  float hz=clamp(uHaze*(0.7+0.6*w2),0.0,0.97);
+  col=mix(col,uHazeCol*day3*0.8,hz);
+  col=mix(col,vec3(0.10,0.085,0.07)*day3,uDust*0.9);
+  col+=emis*(1.0-cl*0.6)*(1.0-hz*0.55)*(1.0-uDust*0.5);
+  /* impacts */
+  for(int i=0;i<6;i++){
+    float life=uImp[i].w;if(life<=0.0||life>=1.0)continue;
+    float s=uImpS[i];float ang=acos(clamp(dot(p,uImp[i].xyz),-1.0,1.0));float k=1.0-life;
+    float fl=exp(-ang*ang/(s*s*0.2))*k*k*k*7.0;
+    float rr=s*(0.25+life*3.2);float rw=0.012+0.07*s;
+    float ring=exp(-sq((ang-rr)/rw))*pow(k,1.5);
+    float scar=exp(-ang*ang/(s*s*0.9))*k;
+    col=mix(col,vec3(0.04,0.03,0.025),min(scar*0.8,0.9)*smoothstep(0.0,0.15,life));
+    col+=vec3(1.0,0.82,0.6)*fl+vec3(1.0,0.5,0.18)*ring*1.6+bb(scar*1.1)*0.9;
+  }
+  /* air */
+  float mu=max(dot(pw,-rd),0.0);float path=1.0/(mu+0.12);
+  vec3 ac=mix(uAtmo,uHazeCol,uHaze*0.6);
+  float lit=smoothstep(-0.25,0.35,nl0);
+  float sc=1.0-exp(-0.085*path);
+  col=col*(1.0-sc*0.55)+ac*sc*lit*1.05*sunI;
+  /* aurora: green needs oxygen */
+  float wob=noise(vec3(p.xz*3.0,uTime*0.15))*0.06;
+  float ov=exp(-sq((lat-0.87-wob)/0.022));
+  float curt=0.35+0.65*noise(vec3(p.xz*16.0,uTime*0.5));
+  col+=mix(vec3(0.75,0.3,0.9),vec3(0.2,1.0,0.5),uO2)*ov*curt*night*0.6*(1.0-uMolten)*(1.0-hz)*(1.0-hz)*uWater;
+  return col;
+}
+vec3 moonC(vec3 pm,float sunI){
+  vec3 n=normalize(pm-uMoon);
+  float ca=cos(uMoonAng),sa=sin(uMoonAng);vec3 q=vec3(ca*n.x+sa*n.z,n.y,-sa*n.x+ca*n.z);
+  float mar=smoothstep(0.45,0.62,fbm(q*1.8+4.0,4));
+  float cr=fbm(q*9.0,4);
+  vec3 alb=mix(vec3(0.42,0.41,0.39),vec3(0.17,0.17,0.18),mar*0.8)*(0.7+0.6*cr);
+  vec3 n2=normalize(n+(vec3(noise(q*30.0),noise(q*30.0+5.0),noise(q*30.0+9.0))-0.5)*0.3);
+  float nl=max(dot(n2,uSun),0.0)*smoothstep(-0.05,0.08,dot(n,uSun));
+  float sh=1.0;float al=-dot(pm,uSun);if(al>0.0)sh=smoothstep(0.96,1.09,length(pm+uSun*al));
+  vec3 c=alb*(nl*sh*1.7*sunI+0.006);
+  c+=alb*vec3(0.55,0.12,0.04)*(1.0-sh)*nl*0.22;
+  c+=alb*vec3(0.2,0.3,0.5)*0.035*max(dot(n,-normalize(uMoon)),0.0);
+  if(uMoonHot>0.002){
+    float hf=fbm(q*4.0+vec3(0.0,uTime*0.02,0.0),3);float rg=pow(clamp(1.0-abs(2.0*fbm(q*7.0,3)-0.9),0.0,1.0),5.0);
+    c=mix(c,c*0.3,uMoonHot);c+=bb(uMoonHot*(0.15+0.6*hf+0.6*rg))*1.4;
+  }
+  return c;
+}
+void main(){
+  vec2 uv=(gl_FragCoord.xy-0.5*uRes)/uRes.y-uShift;
+  vec3 rd=normalize(uView*vec3(uv,uFocal));vec3 ro=uCam;
+  float sunI=mix(0.62,1.0,clamp((uSunL-0.71)/0.29,0.0,1.0));
+  vec3 col=sky(rd);
+  float tP=sph(ro,rd,vec3(0.0),1.0);
+  float tM=uMoonVis>0.001?sph(ro,rd,uMoon,0.2727):-1.0;
+  float sd=dot(rd,uSun);float sdn=max(sd,0.0);
+  bool hit=tP>0.0||tM>0.0;
+  if(!hit)col+=vec3(1.0,0.93,0.82)*(smoothstep(0.99990,0.99996,sd)*30.0+pow(sdn,2500.0)*3.0+pow(sdn,300.0)*0.5+pow(sdn,30.0)*0.12)*uSunL;
+  /* limb of the atmosphere */
+  float tca=-dot(ro,rd);vec3 pc=ro+rd*tca;float b=length(pc);
+  if(tP<0.0&&tca>0.0){
+    float H=0.022+0.03*uHaze;float dens=exp(-(b-1.0)/H);vec3 nc=pc/b;float ns=dot(nc,uSun);
+    float lit=smoothstep(-0.3,0.3,ns);float fwd=pow(sdn,5.0);
+    vec3 ac=mix(uAtmo,uHazeCol,uHaze*0.7);
+    vec3 hal=ac*dens*(lit*1.1+fwd*2.0*smoothstep(-0.9,-0.2,ns))*sunI;
+    hal=mix(hal,hal*clamp(vec3(1.9)-uAtmo*1.5,0.3,1.8),(1.0-smoothstep(0.0,0.5,abs(ns)))*0.6);
+    hal+=bb(0.4)*dens*uMolten*0.3;
+    col=col*(1.0-min(dens,1.0)*0.8)+hal;
+  }
+  float tO=1e9;
+  if(tP>0.0){tO=tP;col=planet(ro+rd*tP,rd,sunI);}
+  if(tM>0.0&&tM<tO){tO=tM;col=mix(col,moonC(ro+rd*tM,sunI),uMoonVis);}
+  /* debris disc after the giant impact */
+  if(uRing>0.002){
+    float dn=dot(rd,uAxis);
+    if(abs(dn)>1e-4){
+      float tR=-dot(ro,uAxis)/dn;
+      if(tR>0.0&&tR<tO){
+        vec3 pr=ro+rd*tR;float r=length(pr);
+        if(r>1.12&&r<3.3){
+          vec3 ex=normalize(cross(uAxis,vec3(0.0,0.0,1.0)));vec3 ey=cross(uAxis,ex);
+          float w=uRingT*1.4/pow(r,1.5);float c2=cos(w),s2=sin(w);
+          vec2 xy=mat2(c2,-s2,s2,c2)*vec2(dot(pr,ex),dot(pr,ey));
+          float band=smoothstep(1.12,1.5,r)*(1.0-smoothstep(2.3,3.3,r));
+          float lanes=0.5+0.5*noise(vec3(r*16.0,1.0,2.0));
+          float clump=fbm(vec3(xy*3.5,uRingT*0.05),4);
+          float dens=band*lanes*smoothstep(0.25,0.7,clump)*uRing;
+          float sh=1.0;float al=-dot(pr,uSun);if(al>0.0)sh=smoothstep(0.9,1.1,length(pr+uSun*al));
+          vec3 rc=bb(0.3+0.75*clump*(1.0-(r-1.12)/2.6))*1.25+vec3(0.28,0.22,0.17)*sh;
+          col=col*(1.0-dens*0.85)+rc*dens;
+        }
+      }
+    }
+  }
+  col=(col*(2.51*col+0.03))/(col*(2.43*col+0.59)+0.14);
+  col=pow(clamp(col,0.0,1.0),vec3(1.0/2.2));
+  vec2 q=gl_FragCoord.xy/uRes;
+  col*=0.80+0.20*pow(16.0*q.x*q.y*(1.0-q.x)*(1.0-q.y),0.25);
+  col+=(hash2(gl_FragCoord.xy+fract(uTime)*91.0)-0.5)*0.018;
+  O=vec4(col,1.0);
+}`;
+
+/* ───────────────────────── GL setup ───────────────────────── */
+const app=$('app'),canvas=$('gl');
+const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,powerPreference:'high-performance'});
+if(!gl){$('nogl').hidden=false;}
+let prog=null;const U={};
+function compile(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));throw new Error('shader');}return s;}
+if(gl){
+  try{
+    prog=gl.createProgram();gl.attachShader(prog,compile(gl.VERTEX_SHADER,VS));gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,FS));
+    gl.bindAttribLocation(prog,0,'p');gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){console.error(gl.getProgramInfoLog(prog));throw new Error('link');}
+    gl.useProgram(prog);
+    const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,3,-1,-1,3]),gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+  }catch(e){prog=null;$('nogl').hidden=false;}
+}
+const loc=n=>(n in U)?U[n]:(U[n]=gl.getUniformLocation(prog,n));
+const u1=(n,v)=>gl.uniform1f(loc(n),v),u3=(n,v)=>gl.uniform3f(loc(n),v[0],v[1],v[2]),um=(n,m)=>gl.uniformMatrix3fv(loc(n),false,m);
+
+/* ───────────────────────── state ───────────────────────── */
+const boot=(window.claude&&window.claude.hot&&window.claude.hot.data)||{};
+let u=boot.u||0,playing=!reduce&&boot.playing!==false,tween=null,prevAge=CH[0].a;
+let time=0,spin=0.6,moonAng=2.2,ringT=0;
+let yaw=boot.yaw||0,pitch=boot.pitch==null?0.12:boot.pitch,zoom=boot.zoom||1;
+let W=1,H=1,scale=Math.min(window.devicePixelRatio||1,1.5);
+const FOCAL=4;
+let tDist=13,tShift=[0,0],dist=13,shift=[0,0],laidOut=false;
+let dust=0,vegHit=0,city=0,heat=0,shake=0;
+const imps=[];for(let i=0;i<6;i++)imps.push({dir:[0,1,0],size:0,born:-99,dur:1});
+const SUN=norm([-0.72,0.28,0.63]);
+const TILT=axisAngle([0,0,1],-0.41);
+let soundOn=false;
+
+const ageOf=x=>{const i=Math.min(N-2,Math.floor(x)),f=x-i;return CH[i].a+(CH[i+1].a-CH[i].a)*f;};
+const uOf=age=>{age=clamp(age,0,T0);for(let i=0;i<N-1;i++)if(age<=CH[i].a&&age>=CH[i+1].a)return i+(CH[i].a-age)/(CH[i].a-CH[i+1].a);return N-1;};
+const phiOf=x=>{const i=Math.min(N-2,Math.floor(x));return lerp(PHI[i],PHI[i+1],x-i);};
+
+function camera(){
+  const cp=Math.cos(pitch),pos=[dist*cp*Math.sin(yaw),dist*Math.sin(pitch),dist*cp*Math.cos(yaw)];
+  const f=norm([-pos[0],-pos[1],-pos[2]]),r=norm(cross(f,[0,1,0])),up=cross(r,f);
+  return{pos,f,r,up};
+}
+function p2w(){return mmul(TILT,axisAngle([0,1,0],spin));}
+
+function spawn(dirP,size,dur){
+  let s=imps[0];for(const i of imps)if(i.born<s.born)s=i;
+  s.dir=dirP;s.size=size;s.born=time;s.dur=dur;boom(size);
+}
+function facingDir(ox,oy){const c=camera();const w=norm([-c.f[0]+c.r[0]*ox+c.up[0]*oy,-c.f[1]+c.r[1]*ox+c.up[1]*oy,-c.f[2]+c.r[2]*ox+c.up[2]*oy]);return mv(mT(p2w()),w);}
+function flash(strength,ms){const f=$('flash');if(reduce)return;f.style.transition='none';f.style.opacity=strength;void f.offsetWidth;f.style.transition='opacity '+ms+'ms ease-out';f.style.opacity=0;}
+const EVENTS=[
+ {a:4510,fn(){spawn(facingDir(.35,.15),1.3,5.5);flash(.95,2200);shake=1;heat=1;ringT=0;}},
+ {a:66,fn(){spawn(facingDir(-.2,.25),.34,5);flash(.5,1400);shake=.5;dust=1;vegHit=.75;}}
+];
+
+/* ───────────────────────── interface ───────────────────────── */
+const el={kicker:$('kicker'),ageNum:$('ageNum'),ageUnit:$('ageUnit'),title:$('title'),body:$('body'),note:$('note'),words:$('words'),count:$('count'),
+  head1:$('head1'),head2:$('head2'),clockTxt:$('clockTxt'),clockArc:$('clockArc'),clockHand:$('clockHand'),playIcon:$('playIcon'),btnPlay:$('btnPlay')};
+const setText=(node,s)=>{if(node.textContent!==s)node.textContent=s;};
+
+/* readouts */
+const fmtInt=n=>Math.round(n).toLocaleString('en-US');
+const DIALS=[
+ {id:'day',lab:'Length of a day',f:TR.day,show:(v)=>[v.toFixed(1),'hours']},
+ {id:'sun',lab:'Sunlight',f:sunL,show:v=>[(v*100).toFixed(0),'% of today']},
+ {id:'o2',lab:'Oxygen in the air',f:TR.o2,show:v=>v<0.05?['trace','']:[v.toFixed(1),'%']},
+ {id:'moon',lab:'Distance to the Moon',f:TR.moonKm,show:(v,age)=>age>4508?['none','yet']:[fmtInt(v*1000),'km']}
+];
+for(const d of DIALS){
+  const wrap=document.createElement('div');wrap.className='dial';
+  let pts='',lo=1e9,hi=-1e9;const S=[];
+  for(let i=0;i<=200;i++){const v=d.f(T0*(1-i/200));S.push(v);lo=Math.min(lo,v);hi=Math.max(hi,v);}
+  S.forEach((v,i)=>{pts+=(i?'L':'M')+(i/2).toFixed(1)+' '+(20-19*(v-lo)/(hi-lo||1)).toFixed(2);});
+  d.lo=lo;d.hi=hi;
+  wrap.innerHTML='<span class="lab">'+d.lab+'</span><span class="val"><span></span><small></small></span><div class="spark"><svg viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"><path d="'+pts+'"/></svg><i></i><b></b></div>';
+  $('dials').appendChild(wrap);
+  d.num=wrap.querySelector('.val span');d.unit=wrap.querySelector('small');d.line=wrap.querySelector('i');d.dot=wrap.querySelector('b');
+}
+
+/* time scale */
+function buildStrip(strip,list,span,nameIx,colIx,ltIx){
+  for(const r of list){const s=document.createElement('div');s.className='seg'+(ltIx!=null&&r[ltIx]?' lt':'');
+    s.style.setProperty('--d',(r[0]-r[1])/span);s.style.background=r[colIx];s.dataset.name=r[nameIx];
+    if(r[nameIx]==='Triassic'||r[nameIx]==='Ordovician')s.classList.add('lt');
+    s.appendChild(document.createElement('span'));strip.appendChild(s);}
+}
+buildStrip($('strip1'),ERAS,T0,2,4,5);
+const PH=PERIODS.filter(p=>p[0]<=538.8);
+buildStrip($('strip2'),PH,538.8,2,3,null);
+EONS.forEach((e,i)=>{const s=document.createElement('span');s.textContent=e[2];if(i===EONS.length-1)s.style.right='0';else s.style.left=((T0-e[0])/T0*100)+'%';$('eons').appendChild(s);});
+const dots=[];
+CH.forEach((c,i)=>{const b=document.createElement('button');b.className='dot';b.setAttribute('aria-label','Go to '+c.t);b.title=c.t;
+  const big=c.a>538.8;b.style.left=(big?(T0-c.a)/T0*100:(538.8-c.a)/538.8*100)+'%';
+  b.addEventListener('pointerdown',e=>e.stopPropagation());b.addEventListener('click',()=>goTo(i));
+  (big?$('track1'):$('track2')).appendChild(b);dots.push(b);});
+function fitLabels(){
+  for(const s of document.querySelectorAll('.seg')){const sp=s.firstChild,name=s.dataset.name,w=s.clientWidth-6;
+    sp.textContent=name;if(sp.offsetWidth>w){sp.textContent=name.slice(0,1);if(sp.offsetWidth>w)sp.textContent='';}}
+}
+
+function fmtAge(age){
+  if(age>=1000)return[(age/1000).toFixed(2),'billion years ago'];
+  if(age>=10)return[String(Math.round(age)),'million years ago'];
+  if(age>=1)return[age.toFixed(1),'million years ago'];
+  if(age>=0.001)return[fmtInt(age*1000),'thousand years ago'];
+  if(age>=0.00002)return[fmtInt(age*1e6),'years ago'];
+  return['Now','the present day'];
+}
+let shown=-1;
+function showChapter(i){
+  if(i===shown)return;const first=shown<0;shown=i;const c=CH[i];
+  el.title.textContent=c.t;el.body.textContent=c.b;el.note.textContent=c.n;
+  el.count.textContent='Chapter '+(i+1)+' of '+N;
+  dots.forEach((d,j)=>d.classList.toggle('on',j===i));
+  if(!first){el.words.classList.remove('in');void el.words.offsetWidth;el.words.classList.add('in');}
+  requestAnimationFrame(layout);
+}
+function updateDom(age){
+  const [n,un]=fmtAge(age);setText(el.ageNum,n);setText(el.ageUnit,un);
+  const eon=find(EONS,age),era=find(ERAS,age),per=find(PERIODS,age);
+  const fine=per?per[2]+' Period':(era&&era[3]?era[2]+' Era':'');
+  setText(el.kicker,eon[2]+' Eon'+(fine?' · '+fine:''));
+  const colr=per?per[3]:(era?era[4]:eon[3]);
+  if(app.dataset.c!==colr){app.dataset.c=colr;app.style.setProperty('--eon',colr);}
+  el.head1.style.left=((T0-age)/T0*100)+'%';
+  const inPh=age<=538.8;if(el.head2.hidden===inPh)el.head2.hidden=!inPh;
+  if(inPh)el.head2.style.left=((538.8-age)/538.8*100)+'%';
+  $('track1').setAttribute('aria-valuenow',Math.round(age));$('track2').setAttribute('aria-valuenow',Math.round(Math.min(age,539)));
+  const fr=1-age/T0,secs=Math.floor(fr*86400);
+  const hh=String(Math.floor(secs/3600)).padStart(2,'0'),mm=String(Math.floor(secs%3600/60)).padStart(2,'0'),ss=String(secs%60).padStart(2,'0');
+  setText(el.clockTxt,hh+':'+mm+':'+ss);
+  el.clockArc.setAttribute('stroke-dasharray',(fr*106.8).toFixed(2)+' 107');
+  el.clockHand.setAttribute('transform','rotate('+(fr*360).toFixed(2)+' 20 20)');
+  for(const d of DIALS){const v=d.f(age),[a,b]=d.show(v,age);setText(d.num,a);setText(d.unit,b);
+    d.line.style.left=d.dot.style.left=(fr*100)+'%';d.dot.style.top=(20-19*(v-d.lo)/(d.hi-d.lo||1))/20*100+'%';}
+  showChapter(clamp(Math.floor(u+0.3),0,N-1));
+}
+function setPlaying(p){playing=p;
+  el.playIcon.setAttribute('d',p?'M2 1h2.2v8H2zM5.8 1H8v8H5.8z':'M2.5 1v8L9 5z');
+  el.btnPlay.setAttribute('aria-label',p?'Pause':(u>=N-1?'Replay from the beginning':'Play'));}
+function goTo(i){i=clamp(i,0,N-1);const d=Math.abs(i-u);if(d<1e-3)return;
+  tween={from:u,to:i,t:0,d:reduce?0.01:Math.min(3.2,0.9+0.45*d)};}
+function scrubTo(age){tween=null;setPlaying(false);u=uOf(age);prevAge=ageOf(u);}
+
+$('btnPlay').addEventListener('click',()=>{if(!playing&&u>=N-1){u=0;prevAge=CH[0].a;}tween=null;setPlaying(!playing);});
+$('btnPrev').addEventListener('click',()=>{setPlaying(false);goTo(Math.ceil((tween?tween.to:u)-1.001+0.5)>=0?Math.round((tween?tween.to:u)-0.51):0);});
+$('btnNext').addEventListener('click',()=>{setPlaying(false);goTo(Math.round((tween?tween.to:u)+0.51));});
+addEventListener('keydown',e=>{
+  if(e.target.closest&&e.target.closest('button'))return;
+  if(e.key===' '){e.preventDefault();$('btnPlay').click();}
+  else if(e.key==='ArrowRight')$('btnNext').click();
+  else if(e.key==='ArrowLeft')$('btnPrev').click();
+});
+function bindTrack(id,span){const t=$(id);let down=false;
+  const at=e=>{const r=t.getBoundingClientRect();scrubTo(span*(1-clamp((e.clientX-r.left)/r.width,0,1)));};
+  t.addEventListener('pointerdown',e=>{down=true;t.setPointerCapture(e.pointerId);at(e);});
+  t.addEventListener('pointermove',e=>{if(down)at(e);});
+  const up=()=>{down=false;};t.addEventListener('pointerup',up);t.addEventListener('pointercancel',up);}
+bindTrack('track1',T0);bindTrack('track2',538.8);
+
+$('btnAbout').addEventListener('click',()=>{const a=$('about');a.hidden=!a.hidden;$('btnAbout').setAttribute('aria-expanded',String(!a.hidden));});
+$('btnSound').addEventListener('click',()=>{soundOn=!soundOn;$('btnSound').setAttribute('aria-pressed',String(soundOn));soundOn?audioOn():audioOff();});
+
+/* orbit, zoom, asteroid */
+const ptrs=new Map();let moved=0,pinch=0,used=false;
+function touched(){if(!used){used=true;$('hint').style.opacity=.0;}}
+canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,[e.clientX,e.clientY]);moved=0;canvas.classList.add('drag');
+  if(ptrs.size===2){const p=[...ptrs.values()];pinch=Math.hypot(p[0][0]-p[1][0],p[0][1]-p[1][1]);}
+  $('about').hidden=true;$('btnAbout').setAttribute('aria-expanded','false');});
+canvas.addEventListener('pointermove',e=>{const p=ptrs.get(e.pointerId);if(!p)return;
+  const dx=e.clientX-p[0],dy=e.clientY-p[1];ptrs.set(e.pointerId,[e.clientX,e.clientY]);
+  if(ptrs.size===1){moved+=Math.abs(dx)+Math.abs(dy);yaw-=dx*0.006;pitch=clamp(pitch+dy*0.006,-1.45,1.45);}
+  else if(ptrs.size===2){const q=[...ptrs.values()];const d=Math.hypot(q[0][0]-q[1][0],q[0][1]-q[1][1]);if(pinch>0)zoom=clamp(zoom*pinch/d,.45,2.6);pinch=d;moved=99;}});
+function release(e){const had=ptrs.has(e.pointerId);const single=ptrs.size===1;ptrs.delete(e.pointerId);if(!ptrs.size)canvas.classList.remove('drag');
+  if(had&&single&&moved<6&&e.type==='pointerup'){const d=pick(e.clientX,e.clientY);if(d){spawn(d,.17,3.6);shake=Math.max(shake,.15);if(ageOf(u)<4400)dust=Math.max(dust,.22);touched();}}
+  else if(moved>=6)touched();}
+canvas.addEventListener('pointerup',release);canvas.addEventListener('pointercancel',release);
+canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=clamp(zoom*Math.exp(e.deltaY*0.0012),.45,2.6);touched();},{passive:false});
+canvas.addEventListener('dblclick',()=>{yaw=0;pitch=.12;zoom=1;});
+function pick(cx,cy){
+  const r=canvas.getBoundingClientRect(),c=camera();
+  const x=(cx-r.left-W/2)/H-shift[0],y=(H/2-(cy-r.top))/H-shift[1];
+  const rd=norm([c.r[0]*x+c.up[0]*y+c.f[0]*FOCAL,c.r[1]*x+c.up[1]*y+c.f[1]*FOCAL,c.r[2]*x+c.up[2]*y+c.f[2]*FOCAL]);
+  const b=dot(c.pos,rd),h=b*b-dot(c.pos,c.pos)+1;if(h<0)return null;
+  const t=-b-Math.sqrt(h),pw=[c.pos[0]+rd[0]*t,c.pos[1]+rd[1]*t,c.pos[2]+rd[2]*t];
+  return mv(mT(p2w()),pw);
+}
+
+/* where the planet sits: in the clear space between the header, the text and the time scale */
+function layout(){
+  const r=app.getBoundingClientRect();W=Math.max(2,r.width);H=Math.max(2,r.height);
+  const narrow=W<=820;
+  const top=document.querySelector('.top').getBoundingClientRect().bottom-r.top;
+  const bot=(narrow?document.querySelector('.story'):document.querySelector('.time')).getBoundingClientRect().top-r.top;
+  const regH=Math.max(60,bot-top);
+  let rad=narrow?Math.min(regH*.44,W*.40):Math.min(regH*.44,Math.max(110,(W-680)/2*1.3+60));
+  const cy=top+regH*(narrow?.52:.47);
+  tShift=[0,(H/2-cy)/H];
+  const tn=clamp(rad/H,.04,.6)/FOCAL;tDist=Math.sqrt(1+tn*tn)/tn;
+  if(!laidOut){laidOut=true;dist=tDist*zoom;shift=tShift.slice();}
+  const cw=Math.max(2,Math.round(W*scale)),ch=Math.max(2,Math.round(H*scale));
+  if(canvas.width!==cw||canvas.height!==ch){canvas.width=cw;canvas.height=ch;}
+  fitLabels();
+}
+addEventListener('resize',()=>{relay=true;});
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(layout);
+
+/* ───────────────────────── sound ───────────────────────── */
+let AC=null;const A={};
+function audioOn(){
+  if(!AC){
+    const Ctx=window.AudioContext||window.webkitAudioContext;if(!Ctx)return;AC=new Ctx();
+    A.master=AC.createGain();A.master.gain.value=0;A.master.connect(AC.destination);
+    A.lp=AC.createBiquadFilter();A.lp.type='lowpass';A.lp.frequency.value=300;A.lp.Q.value=.7;A.lp.connect(A.master);
+    [55,55.4,82.4,110.3].forEach((f,i)=>{const o=AC.createOscillator();o.type=i<2?'sawtooth':'triangle';o.frequency.value=f;const g=AC.createGain();g.gain.value=i<2?.15:.09;o.connect(g);g.connect(A.lp);o.start();});
+    const len=AC.sampleRate*2,buf=AC.createBuffer(1,len,AC.sampleRate),d=buf.getChannelData(0);for(let i=0;i<len;i++)d[i]=Math.random()*2-1;
+    A.buf=buf;const n=AC.createBufferSource();n.buffer=buf;n.loop=true;
+    A.bp=AC.createBiquadFilter();A.bp.type='bandpass';A.bp.frequency.value=500;A.bp.Q.value=.6;
+    A.wind=AC.createGain();A.wind.gain.value=.05;n.connect(A.bp);A.bp.connect(A.wind);A.wind.connect(A.master);n.start();
+  }
+  AC.resume();A.master.gain.setTargetAtTime(.5,AC.currentTime,.4);
+}
+function audioOff(){if(AC)A.master.gain.setTargetAtTime(0,AC.currentTime,.2);}
+function boom(size){
+  if(!AC||!soundOn)return;const t=AC.currentTime,long=1.5+size*2;
+  const o=AC.createOscillator();o.frequency.setValueAtTime(70,t);o.frequency.exponentialRampToValueAtTime(22,t+1.2);
+  const g=AC.createGain();g.gain.setValueAtTime(Math.min(1,.25+size),t);g.gain.exponentialRampToValueAtTime(.001,t+long);o.connect(g);g.connect(A.master);o.start(t);o.stop(t+long+.1);
+  const n=AC.createBufferSource();n.buffer=A.buf;const f=AC.createBiquadFilter();f.type='lowpass';f.frequency.setValueAtTime(900,t);f.frequency.exponentialRampToValueAtTime(60,t+1.5);
+  const g2=AC.createGain();g2.gain.setValueAtTime(Math.min(.8,.15+size*.6),t);g2.gain.exponentialRampToValueAtTime(.001,t+long);n.connect(f);f.connect(g2);g2.connect(A.master);n.start(t);n.stop(t+long+.1);
+}
+
+/* ───────────────────────── frame ───────────────────────── */
+const impA=new Float32Array(24),impS=new Float32Array(6);
+let last=performance.now(),slow=0,fast=0,relay=false;
+function frame(now){
+  if(relay){relay=false;layout();}
+  const raw=(now-last)/1000;last=now;const dt=Math.min(.05,raw);time+=dt;
+  /* story clock */
+  if(tween){tween.t+=dt/tween.d;const k=Math.min(1,tween.t),e=k<.5?4*k*k*k:1-Math.pow(-2*k+2,3)/2;u=lerp(tween.from,tween.to,e);if(k>=1){u=tween.to;tween=null;}}
+  else if(playing){const f=u-Math.floor(u);u+=dt/9.5*(.22+1.56*Math.sin(Math.PI*f)**2);if(u>=N-1){u=N-1;setPlaying(false);}}
+  const age=ageOf(u);
+  if(age<prevAge)for(const ev of EVENTS)if(prevAge>ev.a&&age<=ev.a)ev.fn();
+  prevAge=age;
+
+  /* things that run on their own clock */
+  dust*=Math.exp(-dt/3.2);vegHit*=Math.exp(-dt/7);heat*=Math.exp(-dt/4);shake*=Math.exp(-dt/.5);
+  city+=((age<0.0004?1:0)-city)*Math.min(1,dt*1.2);
+  if(Math.random()<TR.bomb(age)*dt){const z=Math.random()*2-1,a=Math.random()*6.283,s=Math.sqrt(1-z*z);spawn([s*Math.cos(a),z,s*Math.sin(a)],.05+Math.random()**2*.2,2.4+Math.random()*1.6);}
+  let ice=TR.ice(age);if(age<2.6&&age>.02)ice+=.07*Math.sin(time*1.1);
+  const snow=clamp((ice-.6)/.4,0,1),water=TR.water(age),day=TR.day(age),mD=TR.moonD(age);
+  spin+=dt*(24/day)*.16*(reduce?.3:1);
+  moonAng+=dt*.22*Math.pow(3.4/mD,1.5);ringT+=dt;
+  dist+=(tDist*zoom-dist)*Math.min(1,dt*5);shift[0]+=(tShift[0]-shift[0])*Math.min(1,dt*4);shift[1]+=(tShift[1]-shift[1])*Math.min(1,dt*4);
+
+  if(prog){
+    const cw=canvas.width,ch=canvas.height;gl.viewport(0,0,cw,ch);
+    const c=camera(),P2W=p2w(),phi=phiOf(u);
+    gl.uniform2f(loc('uRes'),cw,ch);u1('uTime',time);u3('uCam',c.pos);um('uView',[...c.r,...c.up,...c.f]);
+    gl.uniform2f(loc('uShift'),shift[0]+(Math.random()-.5)*shake*.02,shift[1]+(Math.random()-.5)*shake*.02);u1('uFocal',FOCAL);
+    u3('uSun',SUN);um('uRot',mT(P2W));u3('uAxis',mv(P2W,[0,1,0]));
+    um('uD1',axisAngle([.3,1,.2],phi*.8+.4));um('uD2',axisAngle([1,.2,-.5],-phi*1.1+2));
+    u3('uCDir',mv(axisAngle([.1,1,.3],phi*.6),norm([1,.25,.3])));
+    u1('uMolten',clamp(TR.molten(age)+heat*(age>4400?1:0),0,1));u1('uWater',water);u1('uSea',TR.sea(age));u1('uCluster',TR.cluster(age));
+    u1('uRust',TR.rust(age));u1('uVeg',TR.veg(age)*(1-vegHit));u1('uIce',ice);u1('uHaze',TR.haze(age));
+    u1('uCloud',water*.5*(1-.6*snow));u1('uCity',city);u1('uVolc',TR.volc(age));u1('uDust',dust);u1('uSunL',sunL(age));
+    u1('uRing',TR.ring(age));u1('uRingT',ringT%60);u1('uMoonHot',TR.moonHot(age));u1('uMoonVis',TR.moonVis(age));u1('uO2',clamp(TR.o2(age)/12,0,1));u1('uMoonAng',-moonAng);
+    u3('uOcean',TR.ocean(age));u3('uAtmo',TR.atmo(age));u3('uHazeCol',TR.hazeCol(age));
+    u3('uMoon',mv(axisAngle([0,0,1],.16),[mD*Math.cos(moonAng),0,mD*Math.sin(moonAng)]));
+    imps.forEach((s,i)=>{impA[i*4]=s.dir[0];impA[i*4+1]=s.dir[1];impA[i*4+2]=s.dir[2];impA[i*4+3]=(time-s.born)/s.dur;impS[i]=s.size;});
+    gl.uniform4fv(loc('uImp[0]'),impA);gl.uniform1fv(loc('uImpS[0]'),impS);
+    gl.drawArrays(gl.TRIANGLES,0,3);
+    /* keep the frame rate: trade resolution for speed on slow GPUs */
+    if(raw>.034){slow++;fast=0;}else if(raw<.019){fast++;slow=0;}
+    if(slow>25&&scale>.45){scale=Math.max(.45,scale*.8);slow=0;relay=true;}
+    if(fast>240&&scale<Math.min(window.devicePixelRatio||1,2)){scale=Math.min(Math.min(window.devicePixelRatio||1,2),scale*1.15);fast=0;relay=true;}
+  }
+  if(AC&&soundOn){const t=AC.currentTime,m=TR.molten(age);
+    A.lp.frequency.setTargetAtTime(170+620*(1-m)-260*snow+200*city,t,.6);A.wind.gain.setTargetAtTime(.025+.1*snow+.03*water,t,.6);A.bp.frequency.setTargetAtTime(280+900*snow,t,.6);}
+  updateDom(age);
+  requestAnimationFrame(frame);
+}
+
+const hot=window.claude&&window.claude.hot;
+if(hot&&hot.snapshot)hot.snapshot(()=>({u,yaw,pitch,zoom,playing}));
+window.__deepTime={scrubTo,goTo,play:setPlaying};
+setPlaying(playing);prevAge=ageOf(u);layout();updateDom(ageOf(u));
+requestAnimationFrame(t=>{last=t;layout();frame(t);});
+})();
+</script>
+</body>
+</html>
